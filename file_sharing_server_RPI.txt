@@ -1,0 +1,268 @@
+#!/bin/bash
+
+File Sharing Server on the Raspberry Pi
+
+Hardware: Raspberry Pi 4 Model B 8GB (RPI), Toshiba Canvio Basics 4TB (External Hard Drive), Samsung Pro 32GB (SD Card)
+OS: Raspberry Pi OS (aarch64)
+File Sharing Software: VSFTPD (Very Secure FTP Daemon)
+
+Raspberry Pi OS Install
+1.1. First step is to unzip the obtained image of the installation for Raspberry Pi OS
+# unxz /path/to/2022-04-04-raspios-bullseye-armhf.img.xz
+
+1.2. Afterwards we need to burn the image into the SD Card
+List available devices to identify the SD Card
+# lsblk
+Then, once identified, burn the OS image into the SD Card using the rpi-imager software
+
+1.3. Unmount the SD Card if it is mounted and insert it into the Raspberry Pi, then boot into it to complete the install.
+
+1.4. Follow the setup instructions and finish setting up Raspberry Pi OS.
+
+1.5. Update and upgrade the operating system.
+# sudo apt update && sudo apt upgrade
+(A restart may be needed after the first setup for the update/upgrade to work. If that still generates errors the "--fix-missing" argument should be added to the upgrade command.)
+
+1.6. Change the default keyboard layout
+# sudo dpkg-reconfigure console-setup
+
+Setting up the SSH server.
+2.1. Open the file /etc/ssh/sshd_config with a text editor and make sure the following option is set as below. (Conf file shared in the documentation project)
+(...)
+PermitRootLogin no
+(...)
+
+2.2. Check if the sshd service is active.
+# systemctl status ssh.service
+
+2.3. Activate the sshd servie and enable it to start on boot.
+# systemctl enable ssh.service --now
+(Repeat step 2.2. to check if the ssh.service started successfully)
+Check that port 22 (default ssh port) is open and listening
+# ssh localhost
+# telnet localhost 22
+(Install of telnet may be required "apt install telnet -y")
+
+2.4. Obtain the IP of the RPI
+# ip a|grep inet
+
+2.5. Test the connection from another machine and see if you can remotely connect to the RPI
+# ssh RPI_user_name@RPI_IP_address
+
+Installation and configuration of VSFTPD
+3.1. Install the VSFPTD package
+# apt install vsftpd
+
+3.2. Open the file /etc/hosts.allow using a text editor. Then insert the following;
+(...)
+# Allow all connections
+vsftpd: ALL
+# IP address range
+vsftpd: 10.0.0.0/255.255.255.0
+(...)
+
+3.3. Create a backup file of /etc/vsftpd.conf
+# cp /etc/vsftpd.conf /etc/vsftpd.conf.bk
+
+3.4. Open the file /etc/vsftpd.conf using a text editor. Then make sure the following is added;
+listen=NO
+# This option disables anonymous access to the VSFTPD server
+anonymous_enable=NO
+# This directive enables listening on IPv6 sockets
+listen_ipv6=YES
+# This allows users to make changes to the filesystem
+write_enable=YES
+# This option allows users in /etc/passwd to login
+local_enable=YES
+# Activate directory messages when remote users go into a certain directory
+dirmessage_enable=YES
+# This option will make vsftpd display directory listings with the time in your local time zone
+use_localtime=YES
+# Logging of uploads/downloads
+xferlog_enable=YES
+# Make sure PORT transfer connections originate from port 20 (ftp-data)
+connect_from_port_20=YES
+# Change the default connection timeout for an idle session
+idle_session_timeout=6000
+# Change the default value for timeout of a data connection
+data_connection_timeout=150
+# Custom login banner string
+ftpd_banner=Welcome to the DingusServer very secure file transfer service.
+# This string is the name of the PAM service vsftpd will use
+pam_service_name=vsftpd
+# This option specifies the location of the RSA certificate to use for SSL encrypted connections.
+rsa_cert_file=/etc/ssl/certs/ssl-cert-snakeoil.pem
+rsa_private_key_file=/etc/ssl/private/ssl-cert-snakeoil.key
+ssl_enable=NO
+
+3.5. Verify that the vsftpd service is started and enabled
+# systemctl status vsftpd
+(If not, enable it and start it, if already started when the conf file was edited, restart the service to apply the changes)
+# systemctl enable vsftpd --now
+# systemctl restart vsftpd
+
+3.6. Verify that vsftpd is listening on port 21 and allowing connections
+# netstat -tulpn|grep vsftpd
+# telnet localhost 21
+
+Mounting the storage drive and automating mount on boot
+4.1. Create the Mount point for the storage space 
+# mkdir -p /Public/Drive
+
+4.2. Mount the storage space
+# sudo mount /dev/device_number /Public/Drive
+
+4.3. To automate the mounting of the drive on subsequent boots add the following to the /etc/fstab file
+/dev/device_number	/Public/Drive	ntfs	defaults	0	2
+
+Creating and configuring the "ftp" group permissions for the users
+5.1. Confirm that the user and group "ftp" are present on the system
+# grep ftp /etc/shadow
+# grep ftp /etc/group
+
+5.2. Grant the user "ftp" ownership of the contents of the /Public folder
+# chown -R ftp:ftp /Public
+
+5.3. Add users to the "ftp" group
+# usermod -G ftp user_1 user_2 user_3
+or create users with the "ftp" group already added
+# usearadd -m -G ftp user_4
+
+5.4. Create a symbolic link for users to access the storage space on their /home folders
+# mkdir Storage
+# ln -s /Public/Drive/ /$HOME/Storage/
+
+Hardening the system with fail2ban
+6.1. Install fail2ban
+# apt install fail2ban
+
+6.2. Create a backup copy of the fail2ban configuration file
+# cp  /etc/fail2ban/fail2ban.conf /etc/fail2ban/fail2ban.conf.bk
+
+6.3. Edit the "/etc/fail2ban/fail2ban.conf" file
+(...)
+# Options: dbpurgeage
+# Notes.: Sets age at which bans should be purged from the database
+# Values: [ SECONDS ] Default: 86400 (24hours)
+dbpurgeage = 7d
+(...)
+
+6.4. Create and edit the "/etc/fail2ban/jail.local" file and add the following;
+[vsftpd]
+enabled = true
+port = ftp,ftp-data,ftps,ftps-data
+logpath = %(vsftpd_log)s
+
+[ssh-ddos]
+enabled = true
+port    = ssh,sftp
+filter  = sshd-ddos
+logpath  = /var/log/messages
+maxretry = 2
+
+[ssh-iptables]
+enabled  = true
+filter   = sshd
+action   = iptables[name=SSH, port=ssh, protocol=tcp]
+logpath  = /var/log/auth.log
+maxretry = 5
+
+6.5. Restart the fail2ban service to implement the changes
+# systemctl restart fail2ban
+
+6.6. Check the status of the fail2ban service and the fail2ban-client
+# systemctl status fail2ban
+# fail2ban-client status
+
+Hardening the system with periodic scans such as ClamAV and anti-rootkits
+7.1. Install ClamAV, chkrootkit and rkhunter
+# apt install -y clamav chkrootkit rkhunter
+("no network" chosen for rkhunter) 
+
+7.2. Confirm that the ClamAV service is enabled and started
+# systemctl status clamav-freshclam.service 
+In case it is not, enable and start it
+# systemctl enable clamav-freshclam.service --now
+
+7.3. Schedule an automated weekly scan with logging
+Start a session as root
+# sudo su -
+or
+# sudo -i
+
+7.4. Create a text file in the /root directory or download from my GitHub the script "weeklyscan.sh"
+#!/bin/sh
+d=$(date -u +%Y-%m-%d)
+clamscan -r / > "/root/$d-weeklyscan.log"
+echo "" >> "/root/$d-weeklyscan.log"
+chkrootkit >> "/root/$d-weeklyscan.log" 
+echo "" >> "$d-weeklyscan.log"
+rkhunter --check --skip-keypress >>  "$d-weeklyscan.log"
+
+7.5. Give the script execute permissions 
+# chmod 700 /root/weeklyscan.sh
+
+7.6. Add an entry to the /etc/crontab file to schedule a weekly scan (Friday)
+# echo "0  12 *  * fri root /root/weeklyscan.sh" >> /etc/crontab
+
+Hardening the FTP protocol with SSL/TLS encryption
+8.1. Create a certificate and private key
+# openssl req -x509 -days 365 -newkey rsa:2048 -nodes -keyout /etc/vsftpd.pem -out /etc/vsftpd.pem
+
+8.2. Add the following to the /etc/vsftpd.conf file
+(...)
+# enable TLS/SSL
+ssl_enable=YES
+
+# force client to use TLS when logging in
+allow_anon_ssl=NO
+force_local_data_ssl=YES
+force_local_logins_ssl=YES
+ssl_tlsv1=YES
+ssl_sslv2=NO
+ssl_sslv3=NO
+require_ssl_reuse=NO
+ssl_ciphers=HIGH
+
+# specify SSL certificate/private key (Debian/Ubuntu)
+# For CentOS/Fedora/RHEL, replace it with /etc/vsftpd/vsftpd.pem
+rsa_cert_file=/etc/vsftpd.pem
+rsa_private_key_file=/etc/vsftpd.pem
+
+# define port range for passive mode connections
+pasv_max_port=65535
+pasv_min_port=64000
+(...)
+
+8.3. Restart the vsftpd service to apply the changes
+# systemctl restart vsftpd
+
+Further hardening of the SSH service
+9.1. Generate a public/private key pair
+# ssh-keygen
+
+9.2. Copy the keys to the SSH server
+# ssh-copy-id -i ~/.ssh/id_rsa.pub usename@ssh_server_ip
+(Repeat this step for all the necessary machines that will be used to access the SSH server)
+
+9.3. Test the connection to confirm that the key is being accepted
+# ssh username@ssh_server_ip
+
+9.3. Edit the /etc/ssh/sshd_config file to remove password authentication
+(...)
+PasswordAuthentication no
+(...)
+
+9.4. Restart the ssh service to apply the changes 
+# systemctl restart ssh
+
+9.5. Test the connection again to confirm that the server allows access only to users with the key pair installed
+# ssh username@ssh_server_ip
+# ssh userwithnokey@ssh_server_ip
+
+
+
+
+
+
+
