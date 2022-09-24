@@ -1,5 +1,3 @@
-#!/bin/bash
-
 File Sharing Server on the Raspberry Pi
 
 Hardware: Raspberry Pi 4 Model B 8GB (RPI), Toshiba Canvio Basics 4TB (External Hard Drive), Samsung Pro 32GB (SD Card)
@@ -259,10 +257,5 @@ PasswordAuthentication no
 9.5. Test the connection again to confirm that the server allows access only to users with the key pair installed
 # ssh username@ssh_server_ip
 # ssh userwithnokey@ssh_server_ip
-
-
-
-
-
 
 
