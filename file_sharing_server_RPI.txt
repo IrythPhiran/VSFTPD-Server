@@ -1,3 +1,5 @@
+#!/bin/bash
+
 File Sharing Server on the Raspberry Pi
 
 Hardware: Raspberry Pi 4 Model B 8GB (RPI), Toshiba Canvio Basics 4TB (External Hard Drive), Samsung Pro 32GB (SD Card)
@@ -134,41 +136,21 @@ Hardening the system with fail2ban
 6.1. Install fail2ban
 # apt install fail2ban
 
-6.2. Create a backup copy of the fail2ban configuration file
-# cp  /etc/fail2ban/fail2ban.conf /etc/fail2ban/fail2ban.conf.bk
+6.2. Create the file /etc/fail2ban/jail.d/ssh.local with the following
+[sshd]
+enabled   = true
+filter    = sshd
+banaction = iptables
+backend   = systemd
+maxretry  = 5
+findtime  = 1d
+bantime   = 2w
+ignoreip  = 127.0.0.1/8
 
-6.3. Edit the "/etc/fail2ban/fail2ban.conf" file
-(...)
-# Options: dbpurgeage
-# Notes.: Sets age at which bans should be purged from the database
-# Values: [ SECONDS ] Default: 86400 (24hours)
-dbpurgeage = 7d
-(...)
-
-6.4. Create and edit the "/etc/fail2ban/jail.local" file and add the following;
-[vsftpd]
-enabled = true
-port = ftp,ftp-data,ftps,ftps-data
-logpath = %(vsftpd_log)s
-
-[ssh-ddos]
-enabled = true
-port    = ssh,sftp
-filter  = sshd-ddos
-logpath  = /var/log/messages
-maxretry = 2
-
-[ssh-iptables]
-enabled  = true
-filter   = sshd
-action   = iptables[name=SSH, port=ssh, protocol=tcp]
-logpath  = /var/log/auth.log
-maxretry = 5
-
-6.5. Restart the fail2ban service to implement the changes
+6.3. Restart the fail2ban service to implement the changes
 # systemctl restart fail2ban
 
-6.6. Check the status of the fail2ban service and the fail2ban-client
+6.4. Check the status of the fail2ban service and the fail2ban-client
 # systemctl status fail2ban
 # fail2ban-client status
 
@@ -257,5 +239,10 @@ PasswordAuthentication no
 9.5. Test the connection again to confirm that the server allows access only to users with the key pair installed
 # ssh username@ssh_server_ip
 # ssh userwithnokey@ssh_server_ip
+
+
+
+
+
 
 
